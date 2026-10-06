@@ -1,11 +1,11 @@
 # UM34C BLE Monitor
 
-Tool monitor live untuk **RDTech UM34C varian Bluetooth LE** (service BLE UART
-`FFE0`/`FFE1`, HM-10 style) di Windows, memakai Python +
+![Perangkat USB tester UM34C](assets/um34c.jpg)
+
+Tool monitor live untuk **RDTech UM34C varian Bluetooth LE** (service BLE UART `FFE0`/`FFE1`, HM-10 style) di Windows, memakai Python +
 [bleak](https://github.com/hbldh/bleak) (BLE via WinRT).
 
-Dibuat karena `sigrok-cli` di Windows tidak mendukung Bluetooth (penjelasan di
-bagian bawah). Diuji dengan unit UM34C varian BLE.
+Membaca tegangan, arus, daya, suhu, dan status pengisian secara langsung, serta menyimpan hasil ke CSV. Script monitor hanya mengirim perintah pembacaan `0xF0`.
 
 ```
 .
@@ -14,15 +14,51 @@ bagian bawah). Diuji dengan unit UM34C varian BLE.
 +-- um34c_discover.py    <- diagnostik: scan perangkat & lihat peta GATT
 ```
 
-## Persyaratan
+## Mulai cepat (Windows / PowerShell)
 
-- Windows 10/11, Bluetooth aktif
-- Python 3.9+ (diuji pada Python 3.13)
-- Library `bleak` (diuji v3.0.2):
+1. Nyalakan UM34C melalui input USB dan aktifkan Bluetooth komputer. Tutup aplikasi HP atau aplikasi vendor yang sedang terhubung ke unit.
+2. Periksa Python dan pasang dependensi pada interpreter yang sama:
 
-  ```
-  pip install bleak
-  ```
+   ```powershell
+   python --version
+   python -m pip install bleak==3.0.2
+   ```
+
+   Kode memerlukan Python 3.9+ dan Windows 10/11 dengan adapter BLE. Lingkungan pengujian: Python 3.13.12 dan bleak 3.0.2.
+3. Untuk unit lain, ubah `ADDR` di **kedua** file Python. Alamat bawaan: `00:15:A3:00:43:9A`.
+4. Jalankan diagnostik terlebih dahulu:
+
+   ```powershell
+   python um34c_discover.py
+   ```
+
+   Hasil yang diharapkan: MAC ditandai `<-- UM34C`, `connected: True`, service `FFE0`, serta characteristic `FFE1` dengan properti `notify` dan `write-without-response`. Scan berjalan selama 10 detik. Nama perangkat kosong (`None`) adalah normal.
+5. Uji pembacaan terbatas dan simpan hasilnya:
+
+   ```powershell
+   python um34c_monitor.py 100 um34c_test.csv
+   ```
+
+   Pengujian berhasil bila ada 100 baris data, tidak ada `timeout` atau `[checksum MISMATCH]`, dan seluruh nilai `chk_ok` adalah `1`. Cocokkan tegangan/arus dengan layar perangkat untuk pemeriksaan manual.
+
+> Jalankan dari folder proyek. Jika memakai terminal agen atau sandbox dan perangkat terlihat saat scan tetapi koneksi gagal, coba terminal PowerShell biasa dengan akses Bluetooth. Pada pengujian proyek ini, koneksi gagal di sandbox tetapi berhasil ketika dijalankan di luar sandbox.
+
+## Hasil pengujian perangkat (7 Oktober 2026)
+
+Pengujian langsung dengan Python 3.13.12 / bleak 3.0.2, menggunakan perintah pada bagian Mulai cepat:
+
+| Pemeriksaan | Hasil |
+|---|---|
+| Scan BLE | MAC `00:15:A3:00:43:9A`, nama `None`, RSSI -62 dBm |
+| Koneksi dan GATT | Berhasil; `FFE1` handle `0x0029`, CCCD `0x002B` |
+| Monitor 100 polling | Selesai normal (exit code 0), 100 baris CSV |
+| Checksum | 100/100 valid (`chk_ok=1`); tidak ada timeout |
+| Waktu data | 05:29:54 sampai 05:30:49, waktu lokal komputer |
+| Pembacaan | Tegangan 5.16 V, arus 0 A, daya 0 W, suhu 27 C, mode `DCP1.5A` |
+
+Data tersimpan di [um34c_test.csv](um34c_test.csv). Pengujian memverifikasi komunikasi BLE, parsing, checksum, dan logging. Akurasi terhadap alat ukur referensi, respons saat diberi beban, dan kestabilan jangka panjang belum diuji. Nilai resistansi `9999.9` pada kondisi arus nol tidak membuktikan resistansi kabel.
+
+Koneksi di sandbox awalnya gagal dengan `BleakDeviceNotFoundError` meskipun scan menemukan MAC. Kedua script berhasil setelah dijalankan di luar sandbox, tanpa perubahan kode atau pairing ulang.
 
 ## Pemakaian
 
@@ -39,61 +75,52 @@ Terhubung ke UM34C (00:15:A3:00:43:9A) - polling 0xF0, Ctrl+C untuk stop
 V=   5.16V  I=  0.000A  W=   0.000W  T=26C  D+=0.01 D-=0.00  mode=DCP1.5A  mAh=0  mWh=0
 ```
 
+**Catatan penggunaan:** angka polling menghitung percobaan, termasuk timeout; 100 polling tidak selalu menghasilkan 100 baris CSV. `0` berarti tanpa batas. File CSV dibuka dengan mode `w`, sehingga file dengan nama yang sama akan ditimpa. Gunakan nama baru bila ingin menyimpan hasil sebelumnya.
+
 Kolom CSV: `time, V, I, W, TC, TF, D+, D-, mode, mAh, mWh, ohm, chk_ok`
 
 - `V` tegangan (volt), `I` arus (ampere), `W` daya (watt)
 - `TC`/`TF` suhu Celsius/Fahrenheit
 - `D+`/`D-` tegangan data USB (volt)
-- `mAh`/`mWh` grup data perekaman ambang batas, `ohm` resistansi kabel
+- `mAh`/`mWh` hasil perekaman ambang batas, `ohm` nilai resistansi dari perangkat (bukan hasil pengujian resistansi kabel oleh tool)
 - `chk_ok` = 1 jika checksum paket valid (lihat bagian Protokol)
 
 Setting penting di `um34c_monitor.py`:
 
 - `ADDR` - MAC perangkat (default `00:15:A3:00:43:9A`; ganti sesuai unit)
-- `POLL_INTERVAL_S` - jeda antar polling (default 0.3 s, ~3 Hz)
+- `POLL_INTERVAL_S` - jeda antar polling (default 0.3 s setelah balasan sukses)
 - `CHAR` - characteristic BLE UART (`0000ffe1-...`)
+- `RESPONSE_TIMEOUT_S` - batas tunggu satu paket lengkap (default 2 detik)
 
 ---
 
-## Mengapa sigrok-cli tidak didukung di Windows
+## Catatan sigrok-cli pada setup sebelumnya
 
-Ringkasan penyebabnya:
+Catatan berikut berasal dari investigasi setup sebelumnya, bukan pengujian ulang sigrok-cli pada sesi ini:
 
 1. **libsigrok hanya mendukung Bluetooth lewat BlueZ (Linux).**
-   Transport `conn=bt/...` diimplementasikan di `src/serial_bt.c` dengan backend
-   `src/bt/bt_bluez.c`. Tidak ada backend Bluetooth untuk Windows.
+   Transport `conn=bt/...` diimplementasikan di `src/serial_bt.c` dengan backend `src/bt/bt_bluez.c`. Tidak ada backend Bluetooth untuk Windows.
 2. **Build Windows sigrok-cli tidak dikompilasi dengan dukungan Bluetooth.**
-   Binari tidak mengandung string `serial-bt`, `bt/rfcomm`, `bt/dialog`, dst.
-   Akibatnya `conn=bt/...` diperlakukan sebagai **nama port serial biasa** dan
-   error yang muncul selalu dari lapisan `serial-libsp` ("cannot find the
-   path/file specified"), bukan dari lapisan `serial-bt`.
+   Binari tidak mengandung string `serial-bt`, `bt/rfcomm`, `bt/dialog`, dst. Akibatnya `conn=bt/...` diperlakukan sebagai **nama port serial biasa** dan
+   error yang muncul selalu dari lapisan `serial-libsp` ("cannot find the path/file specified"), bukan dari lapisan `serial-bt`.
 3. **Unit yang diuji adalah varian BLE, bukan Bluetooth SPP klasik seperti pada
-   dokumentasi wiki.** Windows mem-pair perangkat sebagai `BTHLE` (Bluetooth
-   Low Energy), bukan `BTHENUM` (SPP). Konsekuensinya **tidak ada COM port**
-   yang dibuat, sehingga jalur "pairing -> COM port -> `conn=COMx`" (yang biasa
-   dipakai untuk UM24C/25C versi SPP) juga tidak tersedia.
+   dokumentasi wiki.** Windows mem-pair perangkat sebagai `BTHLE` (Bluetooth Low Energy), bukan `BTHENUM` (SPP). Konsekuensinya **tidak ada COM port**  yang dibuat, sehingga jalur "pairing -> COM port -> `conn=COMx`" (yang biasa dipakai untuk UM24C/25C versi SPP) juga tidak tersedia.
 
-Jadi di Windows, `sigrok-cli` tidak dapat berkomunikasi dengan varian BLE ini.
-Jalur BLE hanya didukung oleh libsigrok yang dibuild dengan BlueZ (Linux):
+Jadi di Windows, `sigrok-cli` tidak dapat berkomunikasi dengan varian BLE ini. Jalur BLE hanya didukung oleh libsigrok yang dibuild dengan BlueZ (Linux):
 
 ```
 # di Linux/Raspberry Pi, libsigrok yang ada dukungan Bluetooth (HAVE_BLUETOOTH)
 sigrok-cli -d rdtech-um:conn=bt/notify/00-15-a3-00-43-9a/handle_rx=41/handle_cccd=43 --scan
 ```
 
-(`handle_rx`/`handle_cccd` berasal dari peta GATT di bawah; tipe `notify` adalah
-transport BLE generik yang bisa diarahkan ke handle manual.)
+(`handle_rx`/`handle_cccd` berasal dari peta GATT di bawah; tipe `notify` adalah transport BLE generik yang bisa diarahkan ke handle manual.)
 
 ### Catatan pairing (Windows)
 
-- Script **tidak memerlukan pairing**; script melakukan scan lalu connect
-  langsung (BLE "Just Works").
-- Jika terjadi **"phantom connected"** (Windows menganggap device masih
-  `Connected` padahal link sudah mati), device berhenti advertise dan GATT
-  tidak bisa diakses ("Unreachable"). Solusi: **unpair** device di
-  Settings > Bluetooth & devices, tunggu LED berkedip, lalu jalankan script.
-- Pairing tetap dimungkinkan bila ingin memakai aplikasi vendor, tetapi tidak
-  diperlukan oleh tool ini.
+- Script **tidak memerlukan pairing**; script melakukan scan lalu connect langsung (BLE "Just Works").
+- Jika terjadi **"phantom connected"** (Windows menganggap device masih `Connected` padahal link sudah mati), device berhenti advertise dan GATT
+  tidak bisa diakses ("Unreachable"). Solusi: **unpair** device di Settings > Bluetooth & devices, tunggu LED berkedip, lalu jalankan script.
+- Pairing tetap dimungkinkan bila ingin memakai aplikasi vendor, tetapi tidak diperlukan oleh tool ini.
 
 ### Peta GATT device (hasil observasi)
 
@@ -109,18 +136,15 @@ Service 0000FFE0 - BLE UART (HM-10 style)   <-- jalur data UM34C
   CHAR 0000FFE2  props=write,write-without-response         handle=0x002C
 ```
 
-- Advertising: **tanpa nama** (`local_name` kosong), service UUID `FFE0`.
-  Manufacturer data company ID `0x050E`, isinya MAC device little-endian
-  (`9a4300a31500` = `00:15:a3:00:43:9a`). Karena itu script mencocokkan
-  device berdasarkan **MAC**, bukan nama.
+- Advertising: **tanpa nama** (`local_name` kosong), service UUID `FFE0`. Manufacturer data company ID `0x050E`, isinya MAC device little-endian
+  (`9a4300a31500` = `00:15:a3:00:43:9a`). Karena itu script mencocokkan device berdasarkan **MAC**, bukan nama.
 - MAC perangkat yang diuji: `00:15:A3:00:43:9A`.
 
 ---
 
 ## Cara kerja komunikasi
 
-Protokol datanya **sama** dengan dokumentasi sigrok wiki (UM24C/25C/34C);
-yang berbeda hanya **transport-nya**:
+Protokol datanya **sama** dengan dokumentasi sigrok wiki (UM24C/25C/34C); yang berbeda hanya **transport-nya**:
 
 | | Wiki sigrok | Device ini |
 |---|---|---|
@@ -131,18 +155,14 @@ yang berbeda hanya **transport-nya**:
 
 Alur di `um34c_monitor.py`:
 
-1. Scan BLE, temukan device berdasarkan MAC `00:15:A3:00:43:9A`.
-2. Connect (bleak/WinRT), lalu `start_notify` pada characteristic `FFE1`
-   (subscribe ke CCCD `0x002B`).
+1. Monitor membuat `BleakClient` dari `ADDR`; bleak menangani penemuan alamat saat koneksi. Script diagnostik melakukan scan eksplisit selama 10 detik.
+2. Connect (bleak/WinRT), lalu `start_notify` pada characteristic `FFE1` (subscribe ke CCCD `0x002B`).
 3. Kirim byte perintah `0xF0` ke `FFE1` (write without response).
-4. Device membalas **dump status 130 byte** lewat notification di `FFE1`.
-   BLE memecahnya menjadi beberapa notification kecil; script mengakumulasi
-   byte sampai menemukan paket lengkap yang diawali model ID `0x0d 0x4c`
-   (UM34C), lalu mem-parse sesuai tabel offset di bawah.
-5. Ulangi tiap `POLL_INTERVAL_S` detik.
+4. Device membalas dump status 130 byte lewat notification di `FFE1`. BLE memecahnya menjadi beberapa notification kecil; script mengakumulasi
+   byte sampai menemukan paket lengkap yang diawali model ID `0x0d 0x4c` (UM34C), lalu mem-parse sesuai tabel offset di bawah.
+5. Setelah balasan sukses, tunggu `POLL_INTERVAL_S` sebelum polling berikutnya. Waktu balasan menambah durasi siklus, sehingga 0.3 detik bukan jaminan frekuensi tepat 3 Hz. Saat timeout, kode langsung mencoba polling berikutnya.
 
-Secara protokol, perangkat UM series itu _polling-based_: **tidak** streaming
-otomatis (kecuali satu byte `0xff` ~500 ms setelah power-on). Host harus
+Secara protokol, perangkat UM series itu _polling-based_: tidak streaming otomatis (kecuali satu byte `0xff` ~500 ms setelah power-on). Host harus
 mengirim `0xF0` untuk meminta data.
 
 ### Perintah (byte yang dikirim ke device)
@@ -159,8 +179,7 @@ mengirim `0xF0` untuk meminta data.
 | `0xD0`–`0xD5` | config | Set backlight 0–5 |
 | `0xE0`–`0xE9` | config | Set screen timeout 0–9 menit (0 = nonaktif) |
 
-Script ini sengaja hanya mengirim `0xF0` (mode monitor, read-only). Perintah
-lain bisa ditambahkan bila perlu.
+Script ini sengaja hanya mengirim `0xF0` (mode monitor, read-only). Perintah lain bisa ditambahkan bila perlu.
 
 ### Format balasan (dump 130 byte, big-endian, unsigned)
 
@@ -191,7 +210,7 @@ Semua offset desimal, inklusif. "centivolt" = 1/100 V, "deci-ohm" = 0.1 Ω.
 | 128 | 1 | ? | Tidak diketahui (diduga stop marker) |
 | 129 | 1 | checksum | Checksum UM34C (lihat bawah) |
 
-Pemetaan ini persis yang dipakai `parse()` di `um34c_monitor.py`.
+`parse()` hanya mengekstrak kolom yang ditampilkan atau dicatat ke CSV. Grup data, durasi, dan pengaturan pada tabel belum diekspor oleh script.
 
 ### Mode pengisian (offset 100)
 
@@ -233,18 +252,14 @@ def checksum(pkt):
 |---|---|
 | Script: "UM34C tidak ditemukan" / scan tidak melihat MAC-nya | Device berhenti advertise. Biasanya karena "phantom connected" di Windows atau masih terhubung ke app di HP. Unpair device di Settings, matikan Bluetooth HP / app RDTech, atau cabut-colok power UM34C (LED harus berkedip). |
 | Scan jalan tapi connect "Unreachable" | Sama seperti di atas (link basi). Unpair lalu coba lagi. |
+| `BleakDeviceNotFoundError` setelah MAC terlihat saat scan | Periksa akses Bluetooth terminal/sandbox; coba PowerShell biasa. Jika tetap gagal, tutup koneksi host lain dan cabut-colok daya perangkat. |
 | Nama device kosong saat scan | Wajar. Device ini tidak meng-advertise nama; cocokkan lewat MAC. |
 | `timeout, N byte diterima: ...` | Paket tidak lengkap. Ulangi; jauhkan sumber interferensi; pastikan tidak ada host lain yang connect. |
-| `[checksum MISMATCH]` | Byte checksum tidak cocok dengan rumus; data ukur tetap valid — laporkan jika sering terjadi. |
+| `[checksum MISMATCH]` | Byte checksum tidak cocok dengan rumus; integritas data tidak terverifikasi. Script tetap mencatat baris dengan `chk_ok=0`; ulangi uji dan periksa koneksi. |
 
 ## Referensi
 
-- Protokol UM series (sumber utama tabel di atas):
-  <https://sigrok.org/wiki/RDTech_UM_series>
-  (didokumentasikan oleh Sven Slootweg, driver sigrok oleh Andreas Sandberg &
-  Gerhard Sittig)
+- Protokol UM series (sumber utama tabel di atas): <https://sigrok.org/wiki/RDTech_UM_series> (didokumentasikan oleh Sven Slootweg, driver sigrok oleh Andreas Sandberg & Gerhard Sittig)
 - bleak (Python BLE library): <https://github.com/hbldh/bleak>
-- rdumtool (tool Python lain untuk UM seri, jalur RFCOMM):
-  <https://github.com/rfinnie/rdumtool>
-- Implementasi transport BT/BLE libsigrok (BlueZ):
-  `libsigrok/src/serial_bt.c`, `libsigrok/src/bt/bt_bluez.c`
+- rdumtool (tool Python lain untuk UM seri, jalur RFCOMM): <https://github.com/rfinnie/rdumtool>
+- Implementasi transport BT/BLE libsigrok (BlueZ): `libsigrok/src/serial_bt.c`, `libsigrok/src/bt/bt_bluez.c`

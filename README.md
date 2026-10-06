@@ -1,22 +1,24 @@
 # UM34C BLE Monitor
 
-Tool monitor live untuk **RDTech UM34C varian Bluetooth LE** di Windows,
-memakai Python + [bleak](https://github.com/hbldh/bleak) (BLE via WinRT).
-Menggantikan `sigrok-cli` yang **tidak bisa** dipakai untuk device ini di Windows
-(penjelasan di bawah).
+Tool monitor live untuk **RDTech UM34C varian Bluetooth LE** (service BLE UART
+`FFE0`/`FFE1`, HM-10 style) di Windows, memakai Python +
+[bleak](https://github.com/hbldh/bleak) (BLE via WinRT).
+
+Dibuat karena `sigrok-cli` di Windows tidak mendukung Bluetooth (penjelasan di
+bagian bawah). Diuji dengan unit UM34C varian BLE.
 
 ```
-tools\
-+-- README.md            <- dokumen ini
+.
++-- README.md            <- dokumentasi ini
 +-- um34c_monitor.py     <- program utama (monitor + logging CSV)
-+-- um34c_discover.py    <- diagnostik: scan device & lihat peta GATT
++-- um34c_discover.py    <- diagnostik: scan perangkat & lihat peta GATT
 ```
 
 ## Persyaratan
 
 - Windows 10/11, Bluetooth aktif
-- Python 3.9+ (dites: Python 3.13, miniconda)
-- Library `bleak` (dites v3.0.2):
+- Python 3.9+ (diuji pada Python 3.13)
+- Library `bleak` (diuji v3.0.2):
 
   ```
   pip install bleak
@@ -47,33 +49,32 @@ Kolom CSV: `time, V, I, W, TC, TF, D+, D-, mode, mAh, mWh, ohm, chk_ok`
 
 Setting penting di `um34c_monitor.py`:
 
-- `ADDR` - MAC device (default `00:15:A3:00:43:9A`)
+- `ADDR` - MAC perangkat (default `00:15:A3:00:43:9A`; ganti sesuai unit)
 - `POLL_INTERVAL_S` - jeda antar polling (default 0.3 s, ~3 Hz)
 - `CHAR` - characteristic BLE UART (`0000ffe1-...`)
 
 ---
 
-## Kenapa tidak bisa pakai sigrok-cli di Windows?
+## Mengapa sigrok-cli tidak didukung di Windows
 
-Ringkasan temuan saat setup (2026-10):
+Ringkasan penyebabnya:
 
 1. **libsigrok hanya mendukung Bluetooth lewat BlueZ (Linux).**
    Transport `conn=bt/...` diimplementasikan di `src/serial_bt.c` dengan backend
    `src/bt/bt_bluez.c`. Tidak ada backend Bluetooth untuk Windows.
-2. **Build sigrok-cli Windows yang terpasang tidak dikompilasi dengan dukungan
-   Bluetooth.** Binari tidak mengandung string `serial-bt`, `bt/rfcomm`,
-   `bt/dialog`, dst. Akibatnya `conn=bt/...` diperlakukan sebagai **nama port
-   serial biasa** dan error yang muncul selalu dari lapisan `serial-libsp`
-   ("cannot find the path/file specified"), bukan dari lapisan `serial-bt`.
-3. **UM34C-mu varian BLE, bukan Bluetooth SPP klasik seperti di wiki.**
-   Windows mem-pair device sebagai `BTHLE` (Bluetooth Low Energy), bukan
-   `BTHENUM` (SPP). Konsekuensinya **tidak ada COM port** yang dibuat, sehingga
-   jalur "pairing -> COM port -> `conn=COMx`" (yang bisa dipakai untuk UM24C/25C
-   versi SPP) juga tidak tersedia.
+2. **Build Windows sigrok-cli tidak dikompilasi dengan dukungan Bluetooth.**
+   Binari tidak mengandung string `serial-bt`, `bt/rfcomm`, `bt/dialog`, dst.
+   Akibatnya `conn=bt/...` diperlakukan sebagai **nama port serial biasa** dan
+   error yang muncul selalu dari lapisan `serial-libsp` ("cannot find the
+   path/file specified"), bukan dari lapisan `serial-bt`.
+3. **Unit yang diuji adalah varian BLE, bukan Bluetooth SPP klasik seperti pada
+   dokumentasi wiki.** Windows mem-pair perangkat sebagai `BTHLE` (Bluetooth
+   Low Energy), bukan `BTHENUM` (SPP). Konsekuensinya **tidak ada COM port**
+   yang dibuat, sehingga jalur "pairing -> COM port -> `conn=COMx`" (yang biasa
+   dipakai untuk UM24C/25C versi SPP) juga tidak tersedia.
 
-Jadi di PC Windows ini, `sigrok-cli` secara fundamental tidak bisa bicara dengan
-device ini. Yang identik dengan device kamu justru jalur BLE, dan itu hanya bisa
-kalau libsigrok dibuild dengan BlueZ di Linux:
+Jadi di Windows, `sigrok-cli` tidak dapat berkomunikasi dengan varian BLE ini.
+Jalur BLE hanya didukung oleh libsigrok yang dibuild dengan BlueZ (Linux):
 
 ```
 # di Linux/Raspberry Pi, libsigrok yang ada dukungan Bluetooth (HAVE_BLUETOOTH)
@@ -85,13 +86,14 @@ transport BLE generik yang bisa diarahkan ke handle manual.)
 
 ### Catatan pairing (Windows)
 
-- Script **tidak memerlukan pairing**; dia scan lalu connect langsung
-  (BLE "Just Works"). Device saat ini dibiarkan unpair di Windows.
-- Pernah terjadi **"phantom connected"**: Windows menganggap device masih
-  `Connected` (padahal link mati), sehingga device berhenti advertise dan
-  GATT tidak bisa diakses ("Unreachable"). Solusi: **unpair** device di
+- Script **tidak memerlukan pairing**; script melakukan scan lalu connect
+  langsung (BLE "Just Works").
+- Jika terjadi **"phantom connected"** (Windows menganggap device masih
+  `Connected` padahal link sudah mati), device berhenti advertise dan GATT
+  tidak bisa diakses ("Unreachable"). Solusi: **unpair** device di
   Settings > Bluetooth & devices, tunggu LED berkedip, lalu jalankan script.
-- Kalau ingin pairing ulang untuk app vendor, bisa, tapi tidak perlu untuk tool ini.
+- Pairing tetap dimungkinkan bila ingin memakai aplikasi vendor, tetapi tidak
+  diperlukan oleh tool ini.
 
 ### Peta GATT device (hasil observasi)
 
@@ -111,7 +113,7 @@ Service 0000FFE0 - BLE UART (HM-10 style)   <-- jalur data UM34C
   Manufacturer data company ID `0x050E`, isinya MAC device little-endian
   (`9a4300a31500` = `00:15:a3:00:43:9a`). Karena itu script mencocokkan
   device berdasarkan **MAC**, bukan nama.
-- `ADDR` device ini: `00:15:A3:00:43:9A`.
+- MAC perangkat yang diuji: `00:15:A3:00:43:9A`.
 
 ---
 

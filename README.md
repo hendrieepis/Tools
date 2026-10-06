@@ -14,9 +14,18 @@ Membaca tegangan, arus, daya, suhu, dan status pengisian secara langsung, serta 
 +-- um34c_discover.py    <- diagnostik: scan perangkat & lihat peta GATT
 ```
 
+## Catatan pribadi tentang perangkat
+
+Catatan ini berdasarkan percobaan pribadi dengan **satu unit versi Bluetooth** yang saya miliki. Perilaku pada unit lain bisa berbeda; saya belum memastikan apakah unit ini berfungsi normal atau mengalami kerusakan. Informasi berikut bukan kesimpulan yang sudah diverifikasi untuk semua varian perangkat.
+
+- Sepengetahuan saya, ada **dua versi**: versi Bluetooth dan versi serial USB melalui kabel. Versi serial USB belum saya uji langsung.
+- **Pada unit Bluetooth yang saya coba:** komunikasi melalui BLE. Saya juga sudah mencoba menyambungkan port micro USB perangkat ke komputer dengan kabel, tetapi tidak muncul port COM dari perangkat. **COM3 dan COM4 yang terlihat adalah port virtual milik com0com**, bukan port perangkat ini. Script BLE pada proyek ini ditujukan untuk unit tersebut.
+- **Versi serial USB (kabel):** menurut pemahaman saya menggunakan port COM dan tidak memiliki Bluetooth; hal ini belum saya verifikasi langsung.
+- Pada unit Bluetooth yang saya coba, **switch Bluetooth pada perangkat harus berada di posisi ON** sebelum scan atau koneksi agar Bluetooth perangkat aktif. Bluetooth komputer juga harus aktif.
+
 ## Mulai cepat (Windows / PowerShell)
 
-1. Nyalakan UM34C melalui input USB dan aktifkan Bluetooth komputer. Tutup aplikasi HP atau aplikasi vendor yang sedang terhubung ke unit.
+1. Nyalakan UM34C melalui input USB, geser switch Bluetooth pada perangkat ke posisi **ON**, lalu aktifkan Bluetooth komputer. Tutup aplikasi HP atau aplikasi vendor yang sedang terhubung ke unit.
 2. Periksa Python dan pasang dependensi pada interpreter yang sama:
 
    ```powershell
